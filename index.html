@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Into the Woods</title>
+<meta name="description" content="Walk an endless pixel-art forest: winding trails, birch and pine groves, sun shafts, and mushrooms to forage.">
+<style>
+  html, body { margin: 0; height: 100%; background: #070b0a; overflow: hidden; }
+  #stage {
+    position: fixed; inset: 0; width: 100%; height: 100%; display: block;
+    image-rendering: pixelated; image-rendering: crisp-edges;
+    opacity: 0; transition: opacity 900ms ease; cursor: crosshair;
+  }
+  #stage.lit { opacity: 1; }
+  body.locked #stage { cursor: none; }
+  #title {
+    position: fixed; inset: 0; display: grid; place-content: center; text-align: center; gap: 18px;
+    color: #ede9da; font: 13px/1.6 ui-monospace, monospace; letter-spacing: 0.04em;
+    background: radial-gradient(ellipse at center, rgba(8, 13, 24, 0.55), rgba(8, 13, 24, 0.15) 70%);
+    transition: opacity 600ms ease; pointer-events: none;
+  }
+  #title h1 { margin: 0; font: 600 28px/1 ui-monospace, monospace; letter-spacing: 0.18em; color: #f8ecc8; text-shadow: 2px 2px 0 #11211d; }
+  #title .keys { display: grid; grid-template-columns: auto auto; gap: 2px 16px; justify-content: center; text-align: left; text-shadow: 1px 1px 0 #11211d; }
+  #title .keys b { color: #f1d46a; font-weight: 600; text-align: right; }
+  #title .go { color: #f1d46a; animation: pulse 1.6s ease-in-out infinite; text-shadow: 1px 1px 0 #11211d; }
+  @keyframes pulse { 50% { opacity: 0.45; } }
+  body.playing #title { opacity: 0; }
+  #hint {
+    position: fixed; right: 14px; bottom: 10px; color: #d9d6c6; opacity: 0;
+    font: 11px/1 ui-monospace, monospace; transition: opacity 400ms ease; pointer-events: none;
+  }
+  body.ui #hint { opacity: 0.5; }
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<div id="title">
+  <h1>INTO THE WOODS</h1>
+  <div>follow the trails · forage what you find</div>
+  <div class="keys">
+    <b>W A S D / arrows</b><span>walk and turn</span>
+    <b>Q E</b><span>step sideways</span>
+    <b>R V</b><span>look up and down</span>
+    <b>space</b><span>jump</span>
+    <b>shift</b><span>hurry</span>
+    <b>click</b><span>look with the mouse</span>
+    <b>F</b><span>fullscreen</span>
+  </div>
+  <div class="go">press any key to begin</div>
+</div>
+<div id="hint"></div>
+<script type="module" src="./src/game/main.js"></script>
+</body>
+</html>
