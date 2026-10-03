@@ -67,7 +67,7 @@ const band = (p, fp) => 1 - smooth(p * 0.35, p * 0.8, fp);
 // --- the weather ---------------------------------------------------------------
 
 const wave = (p, t, ph = 0) => Math.sin(TAU * t / p + ph);
-function windAt(t) {
+export function windAt(t) {
   const g = (t % 61) - 30;
   return 0.45 + 0.18 * wave(48, t) + 0.1 * wave(16, t, 1.2) + 0.9 * Math.exp(-((g / 4) ** 2));
 }

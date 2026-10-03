@@ -1,8 +1,9 @@
 // The walker: keys and mouse in, a 30 fps pixel frame out, scaled up with
 // nearest-neighbour to cover the window.
-import { createWorld } from './world.js';
-import { createRenderer, setScale, W, H, PITCH_MAX } from './render.js';
+import { createWorld, TRAIL_HW } from './world.js';
+import { createRenderer, setScale, windAt, W, H, PITCH_MAX } from './render.js';
 import { createInventory } from './inventory.js';
+import { createAudio } from './audio.js';
 
 const params = new URLSearchParams(location.search);
 let seed = Number(params.get('seed'));
@@ -23,7 +24,9 @@ const image = fctx.createImageData(W, H);
 const world = createWorld(seed);
 const renderer = createRenderer(world);
 const satchel = createInventory();
-document.getElementById('hint').textContent = `seed ${seed} · i satchel · f fullscreen · esc frees the mouse`;
+const sound = createAudio();
+const hintText = () => `seed ${seed} · i satchel · m sound ${sound.muted ? 'off' : 'on'} · f fullscreen · esc frees the mouse`;
+document.getElementById('hint').textContent = hintText();
 
 const EYE = 112;
 const WALK = 170, RUN = 340, TURN = 1.9, RADIUS = 16, REACH = 40;
@@ -48,7 +51,15 @@ const GAME_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'KeyR
 addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (!playing) { playing = true; document.body.classList.add('playing'); }
+  sound.start();
   if (GAME_KEYS.has(e.code)) e.preventDefault();
+  if (e.code === 'KeyM' && !e.repeat) {
+    sound.toggleMute();
+    hint.textContent = hintText();
+    document.body.classList.add('ui');
+    clearTimeout(uiTimer);
+    uiTimer = setTimeout(() => document.body.classList.remove('ui'), 2000);
+  }
   if (e.code === 'Space' && !e.repeat) jumpQueued = true;
   if (e.code === 'KeyF' && !e.repeat) {
     if (document.fullscreenElement) document.exitFullscreen();
@@ -68,6 +79,7 @@ addEventListener('blur', () => keys.clear());
 canvas.addEventListener('click', () => {
   if (satchel.isOpen()) return;
   if (!playing) { playing = true; document.body.classList.add('playing'); }
+  sound.start();
   if (document.pointerLockElement !== canvas) canvas.requestPointerLock?.();
 });
 document.addEventListener('pointerlockchange', () => document.body.classList.toggle('locked', document.pointerLockElement === canvas));
@@ -83,6 +95,10 @@ addEventListener('pointermove', () => {
 });
 
 // --- walking ------------------------------------------------------------------------
+
+// what is underfoot: the packed earth of a trail, or the litter of the wood
+const surface = () => (world.trail(st.x, st.z) < TRAIL_HW ? 'trail' : 'litter');
+let lastStride = 0;
 
 function step(dt) {
   st.t += dt;
@@ -100,7 +116,7 @@ function step(dt) {
   if (st.vy !== 0 || st.jump > 0) {
     st.vy -= GRAVITY * dt;
     st.jump += st.vy * dt;
-    if (st.jump <= 0) { st.dip = Math.min(14, -st.vy * 0.02); st.jump = 0; st.vy = 0; }
+    if (st.jump <= 0) { sound.land(-st.vy / JUMP, surface()); st.dip = Math.min(14, -st.vy * 0.02); st.jump = 0; st.vy = 0; }
   }
   st.dip *= Math.exp(-dt * 10);
   const fwd = held('KeyW', 'ArrowUp') - held('KeyS', 'ArrowDown');
@@ -118,6 +134,9 @@ function step(dt) {
   world.collide(st, RADIUS, st.jump);
   const moved = Math.hypot(st.x - ox, st.z - oz);
   if (st.jump <= 0) st.bob += moved / 62;
+  // a footfall each time the stride bottoms out
+  const stride = Math.floor(st.bob / Math.PI);
+  if (stride !== lastStride) { lastStride = stride; if (moved > 0.5) sound.step(surface(), Math.hypot(st.vx, st.vz) / WALK); }
   const pace = st.jump > 0 ? 0 : Math.min(1, Math.hypot(st.vx, st.vz) / WALK);
   st.eye = EYE + st.jump - st.dip + Math.abs(Math.sin(st.bob)) * 2.2 * pace - 1.1 * pace;
 
@@ -157,6 +176,7 @@ function tick(now) {
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
   step(dt);
+  sound.update({ x: st.x, z: st.z, heading: st.heading, t: st.t, wind: windAt(st.t), density: world.density(st.x, st.z) });
   if (now - lastDraw >= 1000 / FPS - 4) { lastDraw = now; draw(); }
 }
 draw();
