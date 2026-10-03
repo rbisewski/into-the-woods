@@ -7,7 +7,7 @@ export const TAU = Math.PI * 2;
 
 // --- palette ----------------------------------------------------------------
 
-export const R = { SKY: 1, LEAFD: 2, LEAF: 3, BARK: 4, DIRT: 5, GRASS: 6, MOSS: 7, STONE: 8, FERN: 9, WHITE: 10, GOLD: 11, MUSH: 12 };
+export const R = { SKY: 1, LEAFD: 2, LEAF: 3, BARK: 4, DIRT: 5, GRASS: 6, MOSS: 7, STONE: 8, FERN: 9, WHITE: 10, GOLD: 11, MUSH: 12, BERRY: 13 };
 
 export const RAMPS = {
   [R.SKY]:   ['#3d5d7a', '#4f7591', '#6b8fa6', '#8eabb6', '#b3c6c1', '#d4d8bd', '#ecdfae', '#f8ecc8'],
@@ -22,6 +22,7 @@ export const RAMPS = {
   [R.WHITE]: ['#46485a', '#62667a', '#868b98', '#aaaeb3', '#c7c9c3', '#dcdbcf', '#ede9da', '#fffbee'],
   [R.GOLD]:  ['#46341a', '#654b20', '#876526', '#ab842c', '#cba037', '#e3bb4b', '#f1d46a', '#fdec98'],
   [R.MUSH]:  ['#381412', '#501b16', '#6b231a', '#892d1e', '#a73a24', '#c14d2e', '#d66942', '#e98b60'],
+  [R.BERRY]: ['#141329', '#1d1c3b', '#282a53', '#35396b', '#454d86', '#5a64a0', '#7684bb', '#9eaad4'],
 };
 
 export const SHADOW = hex('#080d18');   // below a ramp's floor

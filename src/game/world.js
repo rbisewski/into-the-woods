@@ -16,6 +16,8 @@ export const SUN_AZ = 0.55;            // the sun's bearing, low over the trees
 
 export const SP = { OAK: 0, BIRCH: 1, PINE: 2 };
 export const MUSH = { RED: 0, GOLD: 1, WHITE: 2 };
+// berries and herbs; their kinds follow on from the mushrooms' so one number names any find
+export const PLANT = { BILBERRY: 3, RASPBERRY: 4, GARLIC: 5, SORREL: 6, WORT: 7 };
 
 export function createWorld(seed = 1) {
   const S = (k) => (seed * 7919 + k) | 0;      // salt for each noise field
@@ -56,7 +58,7 @@ export function createWorld(seed = 1) {
   function genCell(cx, cz) {
     const r = rng(Math.imul(cx, 73856093) ^ Math.imul(cz, 19349663) ^ S(6));
     const x0 = cx * CELL, z0 = cz * CELL;
-    const c = { trees: [], bushes: [], ferns: [], tufts: [], rocks: [], logs: [], stumps: [], mush: [] };
+    const c = { trees: [], bushes: [], ferns: [], tufts: [], rocks: [], logs: [], stumps: [], mush: [], plants: [] };
     const spot = () => [x0 + r() * CELL, z0 + r() * CELL];
     const clearOf = (x, z, d) => trail(x, z) > d;
     const dc = density(x0 + CELL / 2, z0 + CELL / 2);
@@ -123,8 +125,29 @@ export function createWorld(seed = 1) {
       const n = 1 + Math.floor(r() * 3);
       for (let k = 0; k < n; k++) {
         const id = `${cx},${cz},${k}`;
-        if (picked.has(id)) continue;
-        c.mush.push({ id, kind, x: x + (r() - 0.5) * 30, z: z + (r() - 0.5) * 30, s: 0.75 + r() * 0.5, phase: r() * TAU });
+        // draw it even if picked, so what follows in the cell comes out the same
+        const m = { id, kind, x: x + (r() - 0.5) * 30, z: z + (r() - 0.5) * 30, s: 0.75 + r() * 0.5, phase: r() * TAU };
+        if (!picked.has(id)) c.mush.push(m);
+      }
+    }
+    // berries and herbs grow in patches, each where it likes the light: bilberry
+    // under pine and birch, raspberry and St John's wort out in the clearings,
+    // wild garlic in the deep shade of the oaks, wood sorrel anywhere under trees.
+    // (Drawn after everything above, so the rest of a cell is the same as ever.)
+    if (r() < 0.22) {
+      const [x, z] = spot();
+      const open = 1 - density(x, z), gv = grove(x, z);
+      const kind = open > 0.55 ? (r() < 0.55 ? PLANT.RASPBERRY : PLANT.WORT)
+        : gv > 0.6 || gv < 0.38 ? (r() < 0.7 ? PLANT.BILBERRY : PLANT.SORREL)
+        : r() < 0.5 ? PLANT.GARLIC : PLANT.SORREL;
+      const n = 1 + Math.floor(r() * 3);
+      for (let k = 0; k < n; k++) {
+        const id = `${cx},${cz},p${k}`;
+        const px = x + (r() - 0.5) * 50, pz = z + (r() - 0.5) * 50;
+        const leaves = 5 + Math.floor(r() * 4);
+        const p = { id, kind, x: px, z: pz, s: 0.8 + r() * 0.4, phase: r() * TAU, seed: (r() * 1e6) | 0,
+          leaves: Array.from({ length: leaves }, (_, j) => ({ a: -1.3 + (2.6 * (j + 0.5)) / leaves + (r() - 0.5) * 0.3, len: 0.6 + r() * 0.5 })) };
+        if (!picked.has(id) && clearOf(px, pz, TRAIL_HW * 0.85)) c.plants.push(p);
       }
     }
     return c;
@@ -175,16 +198,21 @@ export function createWorld(seed = 1) {
     });
   }
 
-  function pickup(x, z, reach) {
-    let got = [];
+  // gather whatever is within reach and accepted (take(kind) says whether
+  // there is room for it); anything refused stays where it grows
+  function pickup(x, z, reach, take = () => true) {
+    const got = [], left = [];
+    const gather = (o) => {
+      if (Math.hypot(o.x - x, o.z - z) > reach) return true;
+      if (!take(o.kind)) { left.push(o); return true; }
+      picked.add(o.id); got.push(o);
+      return false;
+    };
     forCells(x, z, reach + 10, (c) => {
-      c.mush = c.mush.filter((m) => {
-        if (Math.hypot(m.x - x, m.z - z) > reach) return true;
-        picked.add(m.id); got.push(m);
-        return false;
-      });
+      c.mush = c.mush.filter(gather);
+      c.plants = c.plants.filter(gather);
     });
-    return got;
+    return { got, left };
   }
 
   // start on a trail near the origin, looking along it. (Not at the origin

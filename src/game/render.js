@@ -17,7 +17,7 @@
 // ---------------------------------------------------------------------------
 
 import { TAU, R, hex, mix, makeLUT, bayerMaps, hash, vnoise, rng, clamp, smooth } from '../pixel.js';
-import { CELL, TRAIL_HW, SUN_AZ, SP, MUSH } from './world.js';
+import { CELL, TRAIL_HW, SUN_AZ, SP, MUSH, PLANT } from './world.js';
 
 // Everything measured in pixels comes from one scale, PX: 1 is the original
 // 384x216 frame, 2 is 768x432. Distances in the world never change with it.
@@ -384,7 +384,7 @@ export function createRenderer(world) {
     drawCloud(S, SX, sy, hy, t);
 
     // --- what stands within reach this frame
-    const vis = { trees: [], bushes: [], ferns: [], tufts: [], rocks: [], logs: [], stumps: [], mush: [] };
+    const vis = { trees: [], bushes: [], ferns: [], tufts: [], rocks: [], logs: [], stumps: [], mush: [], plants: [] };
     const inView = (Z, X, pad) => Z > -pad && Z < ZMAX + pad && Math.abs(X) < Math.max(0, Z) * CONE + pad;
     world.forCells(px, pz, ZMAX, (c, cx, cz) => {
       const ox = (cx + 0.5) * CELL, oz = (cz + 0.5) * CELL;
@@ -395,7 +395,7 @@ export function createRenderer(world) {
         tr._Z = toCamZ(tr.x, tr.z); tr._X = toCamX(tr.x, tr.z);
         if (inView(tr._Z, tr._X, 400) && tr._Z > 20) vis.trees.push(tr);
       }
-      for (const k of ['bushes', 'rocks', 'logs', 'stumps', 'mush', ...(near ? ['ferns', 'tufts'] : [])]) {
+      for (const k of ['bushes', 'rocks', 'logs', 'stumps', 'mush', 'plants', ...(near ? ['ferns', 'tufts'] : [])]) {
         for (const o of c[k]) {
           o._Z = toCamZ(o.x, o.z); o._X = toCamX(o.x, o.z);
           if (k === 'logs' || (o._Z > 15 && o._Z < (k === 'bushes' || k === 'rocks' ? ZMAX : PLANT_Z) && Math.abs(o._X) < o._Z * CONE + 120)) vis[k].push(o);
@@ -561,6 +561,7 @@ export function createRenderer(world) {
     for (const f of vis.ferns) drawFern(S, f, cam);
     for (const tf of vis.tufts) drawTuft(S, tf, cam);
     for (const m of vis.mush) drawMush(S, m, cam);
+    for (const p of vis.plants) drawPlant(S, p, cam);
     life.draw(S, st, cam, toCamZ, toCamX);
 
     // --- how much of the disc shows between the leaves: drives the glare
@@ -1232,6 +1233,66 @@ function drawMush(S, m, cam) {
     const gy = Math.round(cy - ry - 2 * PX);
     dot(S, x, gy, R.GOLD, 11, z - 0.02, 5);
     if (g > 0.97) { dot(S, x - PX, gy, R.GOLD, 9, z - 0.02, 5); dot(S, x + PX, gy, R.GOLD, 9, z - 0.02, 5); dot(S, x, gy - PX, R.GOLD, 9, z - 0.02, 5); dot(S, x, gy + PX, R.GOLD, 9, z - 0.02, 5); }
+  }
+}
+
+// Berries and herbs: a low clump of leaves, and on it the fruit or flowers
+// that give it away. Leaves are drawn like short fern fronds; the fruit sits a
+// hair in front of them so it always shows.
+const PLANT_LOOK = {
+  //                 leaf ramp, leaf level, height, fruit ramp, fruit level, fruit size, fruit count
+  [PLANT.BILBERRY]:  { leaf: R.LEAF, ll: 2.4, h: 30, fruit: R.BERRY, fl: 4.5, fs: 1.8, n: 9 },
+  [PLANT.RASPBERRY]: { leaf: R.LEAF, ll: 1.8, h: 46, fruit: R.MUSH, fl: 5.5, fs: 2.3, n: 6 },
+  [PLANT.GARLIC]:    { leaf: R.GRASS, ll: 3.2, h: 30, fruit: R.WHITE, fl: 7, fs: 1.6, n: 6, broad: 1 },
+  [PLANT.SORREL]:    { leaf: R.MOSS, ll: 3.8, h: 18, fruit: R.WHITE, fl: 6.5, fs: 1.2, n: 4, broad: 1 },
+  [PLANT.WORT]:      { leaf: R.GRASS, ll: 2.6, h: 40, fruit: R.GOLD, fl: 6.5, fs: 1.8, n: 7 },
+};
+function drawPlant(S, p, cam) {
+  const look = PLANT_LOOK[p.kind];
+  const z = p._Z / F;
+  const x0 = W / 2 + p._X / z, by = cam.hy + cam.eye / z, s = (look.h * p.s) / z;
+  if (x0 < -s * 1.5 || x0 > W + s * 1.5 || by - s > H) return;
+  const sway = swayAt(cam.t, cam.wind, p.phase, 3) * (z * PX < 2 ? 1.6 : 1);
+  const lit = 0.3 + 0.5 * Math.max(0, cam.ca);
+  const tips = [];
+  for (const lf of p.leaves) {
+    const L = lf.len * s;
+    const dx = Math.sin(lf.a) * (look.broad ? 1 : 0.6), dy = -Math.cos(lf.a);
+    const steps = Math.max(2, Math.ceil(L * 1.2));
+    let x = x0, y = by;
+    for (let j = 1; j <= steps; j++) {
+      const t = j / steps;
+      x = x0 + dx * L * t + sway * t * t * s * 0.1;
+      y = by + dy * L * t + t * t * L * 0.35 * Math.abs(dx);
+      plot(S, x, y, look.leaf, look.ll + t * 2, z, 4, t * lit, p.x, p.z);
+      // broad leaves are a few pixels wide in the middle
+      const wide = (look.broad ? 0.22 : 0.12) * s * Math.sin(t * Math.PI);
+      for (let m = 1; m <= wide; m++) {
+        plot(S, x - m, y, look.leaf, look.ll + t * 2 - 0.6, z, 4, t * lit, p.x, p.z);
+        plot(S, x + m, y, look.leaf, look.ll + t * 2 + 0.4, z, 4, t * lit, p.x, p.z);
+      }
+    }
+    tips.push([x, y]);
+  }
+  // the fruit or flowers: some at leaf tips, some tucked in among them
+  const r = Math.max(0, (look.fs * p.s) / z - 0.5);
+  for (let k = 0; k < look.n; k++) {
+    const h = hash(p.seed, k, 7);
+    let fx, fy;
+    if (k % 2 === 0 && tips.length) [fx, fy] = tips[(h * tips.length) | 0];
+    else { fx = x0 + (h - 0.5) * s * 0.9; fy = by - s * (0.25 + hash(p.seed, k, 8) * 0.4); }
+    for (let dy = -Math.ceil(r); dy <= Math.ceil(r); dy++) for (let dx = -Math.ceil(r); dx <= Math.ceil(r); dx++) {
+      if (dx * dx + dy * dy > r * r + 0.3) continue;
+      plot(S, fx + dx, fy + dy, look.fruit, look.fl - dy * 0.4 + dx * 0.15 + (dx === -1 && dy === -1 ? 1.5 : 0), z - 0.01, 4, 0.5, p.x, p.z);
+    }
+    if (r < 1) dot(S, fx, fy, look.fruit, look.fl, z - 0.01, 4, 0.5, p.x, p.z);
+  }
+  // a glint now and then, like the mushrooms
+  const g = Math.sin(cam.t * 1.5 + p.phase * 3);
+  if (g > 0.94 && z * PX < 14) {
+    const gy = Math.round(by - s - 2 * PX);
+    dot(S, x0, gy, R.GOLD, 11, z - 0.02, 5);
+    if (g > 0.975) { dot(S, x0 - PX, gy, R.GOLD, 9, z - 0.02, 5); dot(S, x0 + PX, gy, R.GOLD, 9, z - 0.02, 5); }
   }
 }
 

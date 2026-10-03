@@ -1,8 +1,8 @@
 // The walker: keys and mouse in, a 30 fps pixel frame out, scaled up with
 // nearest-neighbour to cover the window.
-import { createWorld, MUSH } from './world.js';
-import { createRenderer, setScale, W, H, PX, PITCH_MAX } from './render.js';
-import { drawHud } from './hud.js';
+import { createWorld } from './world.js';
+import { createRenderer, setScale, W, H, PITCH_MAX } from './render.js';
+import { createInventory } from './inventory.js';
 
 const params = new URLSearchParams(location.search);
 let seed = Number(params.get('seed'));
@@ -22,14 +22,13 @@ const fctx = frame.getContext('2d');
 const image = fctx.createImageData(W, H);
 const world = createWorld(seed);
 const renderer = createRenderer(world);
-document.getElementById('hint').textContent = `seed ${seed} · f fullscreen · esc frees the mouse`;
+const satchel = createInventory();
+document.getElementById('hint').textContent = `seed ${seed} · i satchel · f fullscreen · esc frees the mouse`;
 
 const EYE = 112;
 const WALK = 170, RUN = 340, TURN = 1.9, RADIUS = 16, REACH = 40;
 const LOOK = 1.2, GRAVITY = 1500, JUMP = 460;   // a hop of about 70: enough to clear a log
 const st = { ...world.start(), t: 0, eye: EYE, pitch: 0, vx: 0, vz: 0, bob: 0, jump: 0, vy: 0, dip: 0 };
-const basket = { [MUSH.RED]: 0, [MUSH.GOLD]: 0, [MUSH.WHITE]: 0 };
-const flash = { [MUSH.RED]: 0, [MUSH.GOLD]: 0, [MUSH.WHITE]: 0 };
 
 function resize() {
   canvas.width = innerWidth;
@@ -55,12 +54,19 @@ addEventListener('keydown', (e) => {
     if (document.fullscreenElement) document.exitFullscreen();
     else document.documentElement.requestFullscreen?.();
   }
+  // the satchel wants the mouse back
+  if (e.code === 'KeyI' && !e.repeat) {
+    satchel.toggle();
+    if (satchel.isOpen()) document.exitPointerLock?.();
+  }
+  if (e.code === 'Escape' && satchel.isOpen()) satchel.close();
   keys.add(e.code);
 });
 addEventListener('keyup', (e) => keys.delete(e.code));
 addEventListener('blur', () => keys.clear());
 
 canvas.addEventListener('click', () => {
+  if (satchel.isOpen()) return;
   if (!playing) { playing = true; document.body.classList.add('playing'); }
   if (document.pointerLockElement !== canvas) canvas.requestPointerLock?.();
 });
@@ -80,7 +86,6 @@ addEventListener('pointermove', () => {
 
 function step(dt) {
   st.t += dt;
-  for (const k in flash) flash[k] = Math.max(0, flash[k] - dt);
   if (!playing) { st.heading += dt * 0.04; return; }   // idle drift behind the title
 
   st.heading += (held('KeyD', 'ArrowRight') - held('KeyA', 'ArrowLeft')) * TURN * dt + mouseTurn;
@@ -116,7 +121,8 @@ function step(dt) {
   const pace = st.jump > 0 ? 0 : Math.min(1, Math.hypot(st.vx, st.vz) / WALK);
   st.eye = EYE + st.jump - st.dip + Math.abs(Math.sin(st.bob)) * 2.2 * pace - 1.1 * pace;
 
-  for (const m of world.pickup(st.x, st.z, REACH)) { basket[m.kind]++; flash[m.kind] = 0.5; }
+  const { left } = world.pickup(st.x, st.z, REACH, (kind) => satchel.add(kind));
+  if (left.length) satchel.full();
 }
 
 // --- the loop ---------------------------------------------------------------------------
@@ -132,7 +138,6 @@ function draw() {
   const t0 = performance.now();
   renderer.render(st, image.data);
   const t1 = performance.now();
-  drawHud(image.data, W, H, basket, flash, Math.ceil(-dx / s), Math.ceil(-dy / s), PX);
   fctx.putImageData(image, 0, 0);
   ctx.drawImage(frame, dx, dy, dw, dh);
   canvas.classList.add('lit');
