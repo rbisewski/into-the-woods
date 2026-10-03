@@ -34,7 +34,8 @@
 
   /* --- the satchel ------------------------------------------------------------ */
   :root {
-    --cell: clamp(28px, calc((100vw - 72px) / 10 - 3px), 50px);
+    /* as big as fits across the screen and, on a short phone held sideways, down it */
+    --cell: clamp(28px, min(calc((100vw - 72px) / 10 - 3px), calc((100dvh - 190px) / 5)), 50px);
     --ink: #ede9da; --dim: #a79d84; --gold: #e3bb4b; --gold-hi: #f1d46a;
     --leather: #2a2019; --leather-dk: #17110d; --slot: #120e0b; --slot-hi: #2a2116;
   }
@@ -47,7 +48,7 @@
   body.satchel-open #hint { opacity: 0; }
   #satchel .panel {
     position: absolute; right: max(16px, 4vw); top: 50%; transform: translateY(-50%);
-    max-height: calc(100vh - 32px); overflow: auto; box-sizing: border-box;
+    max-height: calc(100dvh - 32px); overflow: auto; box-sizing: border-box;
     padding: 14px 16px 12px; cursor: default;
     background:
       radial-gradient(ellipse at 30% 0%, rgba(255, 220, 160, 0.06), transparent 60%),
@@ -62,6 +63,11 @@
     text-shadow: 1px 1px 0 #000; padding-bottom: 9px;
     border-bottom: 1px solid #6b5124; box-shadow: 0 1px 0 #000;
   }
+  #satchel .close {
+    position: absolute; top: 6px; right: 8px; width: 28px; height: 28px; padding: 0;
+    background: none; border: 0; color: var(--dim); font: 22px/1 ui-monospace, monospace; cursor: pointer;
+  }
+  #satchel .close:hover { color: var(--gold-hi); }
   #satchel .label { margin: 8px 0 4px; color: var(--dim); font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; }
   #satchel .grid, #satchel .guide { display: grid; gap: 3px; }
   #satchel .grid { grid-template-columns: repeat(var(--cols), var(--cell)); }
@@ -129,6 +135,55 @@
   .toast img { width: 24px; height: 24px; }
   .toast.out { opacity: 0; }
   @keyframes toast-in { from { opacity: 0; transform: translateX(-8px); } }
+
+  /* --- on a phone ------------------------------------------------------------- */
+  #title .touch, #title .turn { display: none; }
+  body.touch #title .desk { display: none; }
+  body.touch #title .touch { display: grid; }
+  body.touch, body.touch * { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  body.touch #hint { display: none; }
+  @media (orientation: portrait) { body.touch #title .turn { display: block; color: #d9d6c6; text-shadow: 1px 1px 0 #11211d, 0 0 6px #11211d; } }
+  /* the stick lives bottom-left, so the notes go up top */
+  body.touch .toasts { bottom: auto; top: max(12px, env(safe-area-inset-top)); left: max(14px, env(safe-area-inset-left)); }
+
+  #touch { position: fixed; inset: 0; z-index: 5; }
+  #touch .zone { position: absolute; top: 0; bottom: 0; }
+  #touch .zone.move { left: 0; width: 45%; }
+  #touch .zone.look { right: 0; width: 55%; }
+  #touch .stick {
+    --r: 60px; position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none;
+    opacity: 0; transition: opacity 150ms ease;
+  }
+  #touch .stick.on { opacity: 1; }
+  #touch .stick::before, #touch .knob {
+    content: ''; position: absolute; border-radius: 50%; box-sizing: border-box;
+  }
+  #touch .stick::before {
+    left: calc(var(--r) * -1); top: calc(var(--r) * -1); width: calc(var(--r) * 2); height: calc(var(--r) * 2);
+    border: 2px solid rgba(237, 233, 218, 0.35); background: rgba(10, 8, 6, 0.25);
+  }
+  #touch .knob {
+    left: calc(var(--r) * -0.42); top: calc(var(--r) * -0.42); width: calc(var(--r) * 0.84); height: calc(var(--r) * 0.84);
+    background: rgba(237, 233, 218, 0.45); border: 2px solid rgba(237, 233, 218, 0.7);
+  }
+  #touch .stick.run .knob { background: rgba(241, 212, 106, 0.6); border-color: var(--gold-hi); }
+  #touch button {
+    display: grid; place-items: center; padding: 0; border-radius: 50%; color: var(--ink);
+    background: rgba(10, 8, 6, 0.4); border: 2px solid rgba(237, 233, 218, 0.35);
+  }
+  #touch button:active { background: rgba(241, 212, 106, 0.35); border-color: var(--gold-hi); }
+  #touch button svg { width: 55%; height: 55%; }
+  #touch .jump {
+    position: absolute; width: 68px; height: 68px;
+    right: max(22px, env(safe-area-inset-right)); bottom: max(22px, env(safe-area-inset-bottom));
+  }
+  #touch .bar {
+    position: absolute; display: flex; gap: 10px;
+    right: max(14px, env(safe-area-inset-right)); top: max(12px, env(safe-area-inset-top));
+  }
+  #touch .bar button { width: 44px; height: 44px; }
+  body:not(.playing) #touch .bar, body:not(.playing) #touch .jump { opacity: 0; }
+  body.satchel-open #touch { display: none; }
 </style>
 </head>
 <body>
@@ -136,7 +191,7 @@
 <div id="title">
   <h1>INTO THE WOODS</h1>
   <div>follow the trails · forage what you find</div>
-  <div class="keys">
+  <div class="keys desk">
     <b>W A S D / arrows</b><span>walk and turn</span>
     <b>Q E</b><span>step sideways</span>
     <b>R V</b><span>look up and down</span>
@@ -147,7 +202,13 @@
     <b>M</b><span>sound on and off</span>
     <b>F</b><span>fullscreen</span>
   </div>
-  <div class="go">press any key to begin</div>
+  <div class="keys touch">
+    <b>left thumb</b><span>walk · push far to hurry</span>
+    <b>right thumb</b><span>drag to look around</span>
+    <b>buttons</b><span>jump, satchel, sound</span>
+  </div>
+  <div class="turn">turn your phone sideways for a wider view</div>
+  <div class="go"><span class="desk">press any key to begin</span><span class="touch">tap to begin</span></div>
 </div>
 <div id="hint"></div>
 <script type="module" src="./src/game/main.js"></script>

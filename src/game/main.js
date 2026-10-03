@@ -4,6 +4,7 @@ import { createWorld, TRAIL_HW } from './world.js';
 import { createRenderer, setScale, windAt, W, H, PITCH_MAX } from './render.js';
 import { createInventory } from './inventory.js';
 import { createAudio } from './audio.js';
+import { createTouch, wantsTouch } from './touch.js';
 
 const params = new URLSearchParams(location.search);
 let seed = Number(params.get('seed'));
@@ -13,8 +14,10 @@ if (!Number.isInteger(seed) || seed <= 0) {
   history.replaceState(null, '', `${location.pathname}?${params}`);
 }
 const FPS = Number(params.get('fps')) || 30;
-// frame size: 2 is 768x432, 1 the original 384x216 for slower machines
-setScale(Number(params.get('scale')) === 1 ? 1 : 2);
+const TOUCH = wantsTouch(params);
+// frame size: 2 is 768x432, 1 the original 384x216 for slower machines (and,
+// unless asked otherwise, for phones)
+setScale(Number(params.get('scale')) === 1 || (TOUCH && !params.has('scale')) ? 1 : 2);
 
 const canvas = document.getElementById('stage');
 const ctx = canvas.getContext('2d');
@@ -23,7 +26,7 @@ const fctx = frame.getContext('2d');
 const image = fctx.createImageData(W, H);
 const world = createWorld(seed);
 const renderer = createRenderer(world);
-const satchel = createInventory();
+const satchel = createInventory({ touch: TOUCH });
 const sound = createAudio();
 const hintText = () => `seed ${seed} · i satchel · m sound ${sound.muted ? 'off' : 'on'} · f fullscreen · esc frees the mouse`;
 document.getElementById('hint').textContent = hintText();
@@ -32,6 +35,15 @@ const EYE = 112;
 const WALK = 170, RUN = 340, TURN = 1.9, RADIUS = 16, REACH = 40;
 const LOOK = 1.2, GRAVITY = 1500, JUMP = 460;   // a hop of about 70: enough to clear a log
 const st = { ...world.start(), t: 0, eye: EYE, pitch: 0, vx: 0, vz: 0, bob: 0, jump: 0, vy: 0, dip: 0 };
+
+// on a phone: a stick for the left thumb, looking for the right
+const touch = TOUCH ? createTouch({
+  onStart: begin,
+  onJump: () => { jumpQueued = true; },
+  onSatchel: () => satchel.toggle(),
+  onSound: () => sound.toggleMute(),
+  muted: sound.muted,
+}) : null;
 
 function resize() {
   canvas.width = innerWidth;
@@ -45,13 +57,16 @@ resize();
 
 const keys = new Set();
 let playing = false, mouseTurn = 0, mouseLook = 0, jumpQueued = false;
+function begin() {
+  if (!playing) { playing = true; document.body.classList.add('playing'); }
+  sound.start();
+}
 const held = (...codes) => codes.some((c) => keys.has(c)) ? 1 : 0;
 const GAME_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'KeyR', 'KeyV', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'PageUp', 'PageDown']);
 
 addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
-  if (!playing) { playing = true; document.body.classList.add('playing'); }
-  sound.start();
+  begin();
   if (GAME_KEYS.has(e.code)) e.preventDefault();
   if (e.code === 'KeyM' && !e.repeat) {
     sound.toggleMute();
@@ -78,8 +93,7 @@ addEventListener('blur', () => keys.clear());
 
 canvas.addEventListener('click', () => {
   if (satchel.isOpen()) return;
-  if (!playing) { playing = true; document.body.classList.add('playing'); }
-  sound.start();
+  begin();
   if (document.pointerLockElement !== canvas) canvas.requestPointerLock?.();
 });
 document.addEventListener('pointerlockchange', () => document.body.classList.toggle('locked', document.pointerLockElement === canvas));
@@ -104,6 +118,7 @@ function step(dt) {
   st.t += dt;
   if (!playing) { st.heading += dt * 0.04; return; }   // idle drift behind the title
 
+  if (touch) { const [t, l] = touch.takeLook(); mouseTurn += t; mouseLook += l; }
   st.heading += (held('KeyD', 'ArrowRight') - held('KeyA', 'ArrowLeft')) * TURN * dt + mouseTurn;
   st.pitch += (held('KeyR', 'PageUp') - held('KeyV', 'PageDown')) * LOOK * dt + mouseLook;
   st.pitch = Math.max(-PITCH_MAX, Math.min(PITCH_MAX, st.pitch));
@@ -119,12 +134,14 @@ function step(dt) {
     if (st.jump <= 0) { sound.land(-st.vy / JUMP, surface()); st.dip = Math.min(14, -st.vy * 0.02); st.jump = 0; st.vy = 0; }
   }
   st.dip *= Math.exp(-dt * 10);
-  const fwd = held('KeyW', 'ArrowUp') - held('KeyS', 'ArrowDown');
-  const side = held('KeyE') - held('KeyQ');
+  let fwd = held('KeyW', 'ArrowUp') - held('KeyS', 'ArrowDown');
+  let side = held('KeyE') - held('KeyQ');
+  if (touch) { fwd += touch.move.y; side += touch.move.x; }
   const fx = Math.sin(st.heading), fz = Math.cos(st.heading);
   let dx = fx * fwd + fz * side, dz = fz * fwd - fx * side;
   const m = Math.hypot(dx, dz);
-  const speed = held('ShiftLeft', 'ShiftRight') ? RUN : WALK;
+  // keys are all or nothing; the stick can ease you along slower
+  const speed = (held('ShiftLeft', 'ShiftRight') || touch?.move.run ? RUN : WALK) * Math.min(1, m);
   if (m > 0) { dx *= speed / m; dz *= speed / m; }
   // ease in and out of a stride; in the air there is little to push against
   const k = 1 - Math.exp(-dt * (st.jump > 0 ? 1.5 : 9));

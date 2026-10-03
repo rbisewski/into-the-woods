@@ -2,6 +2,8 @@
 // holds a stack of one kind. Click a stack to lift it onto the cursor (shift
 // lifts half), click a slot to set it down, swapping or merging with what is
 // there; click anywhere outside the satchel to leave it on the forest floor.
+// On a phone the same goes by taps: a tap shows what a thing is as it is lifted,
+// and holding a finger on a stack lifts half of it.
 
 import { ITEMS, KIND, iconPixels } from './items.js';
 
@@ -21,10 +23,11 @@ function iconURL(id) {
 const el = (tag, cls, parent) => { const e = document.createElement(tag); if (cls) e.className = cls; parent?.appendChild(e); return e; };
 const nameClass = (it) => it.poison ? 'poison' : it.kind === KIND.BERRY ? 'berry' : it.kind === KIND.HERB ? 'herb' : 'mushroom';
 
-export function createInventory() {
+export function createInventory({ touch = false } = {}) {
   const slots = new Array(COLS * ROWS).fill(null);    // { id, n } or null
   const found = {};                                   // id -> how many ever gathered
   let held = null, open = false;
+  let finger = false;   // was the last press a finger rather than a mouse?
 
   // --- the DOM -------------------------------------------------------------------
 
@@ -32,6 +35,10 @@ export function createInventory() {
   root.id = 'satchel';
   const panel = el('div', 'panel', root);
   el('div', 'title', panel).textContent = 'Satchel';
+  const closeBtn = el('button', 'close', panel);
+  closeBtn.setAttribute('aria-label', 'Close satchel');
+  closeBtn.textContent = '×';
+  closeBtn.addEventListener('click', (e) => { e.stopPropagation(); setOpen(false); });
 
   el('div', 'label', panel).textContent = 'Field guide';
   const guide = el('div', 'guide', panel);
@@ -53,7 +60,9 @@ export function createInventory() {
   });
 
   const foot = el('div', 'foot', panel);
-  el('div', 'help', panel).innerHTML = '<b>click</b> lift / place · <b>shift</b> lift half · click outside to drop · <b>I</b> / <b>esc</b> close';
+  el('div', 'help', panel).innerHTML = touch
+    ? '<b>tap</b> lift / place · <b>hold</b> lift half · tap outside to drop'
+    : '<b>click</b> lift / place · <b>shift</b> lift half · click outside to drop · <b>I</b> / <b>esc</b> close';
 
   const cursor = el('div', 'held', document.body);
   const tip = el('div', 'tip', document.body);
@@ -107,6 +116,8 @@ export function createInventory() {
   function moveTip(e) {
     const r = tip.getBoundingClientRect(), pad = 14;
     let x = e.clientX + pad, y = e.clientY + pad;
+    if (finger) { x = e.clientX - r.width / 2; y = e.clientY - r.height - 3 * pad; }   // above the finger, not under it
+    if (y < 8) y = e.clientY + 3 * pad;
     if (x + r.width > innerWidth - 8) x = e.clientX - r.width - pad;
     if (y + r.height > innerHeight - 8) y = innerHeight - r.height - 8;
     tip.style.transform = `translate(${Math.max(8, x)}px, ${Math.max(8, y)}px)`;
@@ -119,14 +130,35 @@ export function createInventory() {
     if (held || id === undefined) return hideTip();
     showTip(id, c.dataset.slot !== undefined ? slots[c.dataset.slot].n : 0, e);
   });
-  root.addEventListener('pointerleave', hideTip);
-  addEventListener('pointermove', (e) => {
-    cursor.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`;
+  // (a finger "leaves" whenever it lifts, which is no reason to hide what it tapped)
+  root.addEventListener('pointerleave', (e) => { if (e.pointerType !== 'touch') hideTip(); });
+  const follow = (e) => { cursor.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`; };
+  addEventListener('pointermove', follow);
+
+  // fingers do not hover: a touch shows the tip for what it lands on instead,
+  // and a finger held on a stack lifts half of it
+  let pressTimer = 0, pressed = false;
+  root.addEventListener('pointerdown', (e) => {
+    follow(e);
+    finger = e.pointerType === 'touch';
+    if (!finger) return;
+    const c = e.target.closest('.cell');
+    if (c?.dataset.guide !== undefined) return showTip(c.dataset.guide, 0, e);
+    hideTip();
+    const i = c?.dataset.slot;
+    clearTimeout(pressTimer);
+    if (i !== undefined && !held && slots[i]?.n > 1) {
+      pressTimer = setTimeout(() => { pressed = true; clickSlot(+i, true, e); }, 450);
+    }
   });
+  const unpress = () => clearTimeout(pressTimer);
+  root.addEventListener('pointerup', unpress);
+  root.addEventListener('pointercancel', unpress);
+  root.addEventListener('contextmenu', (e) => e.preventDefault());
 
   // --- lifting and setting down ------------------------------------------------------
 
-  function clickSlot(i, shift) {
+  function clickSlot(i, shift, e) {
     const s = slots[i];
     if (!held) {
       if (!s) return;
@@ -146,15 +178,20 @@ export function createInventory() {
     }
     hideTip();
     paint();
+    // on a phone, say what was just picked up
+    if (held && finger) showTip(held.id, held.n, e);
   }
 
   panel.addEventListener('click', (e) => {
+    if (pressed) { pressed = false; return; }   // a long press has already lifted it
     const c = e.target.closest('[data-slot]');
-    if (c) clickSlot(+c.dataset.slot, e.shiftKey);
+    if (c) clickSlot(+c.dataset.slot, e.shiftKey, e);
   });
-  // a click anywhere outside the panel lets go of what is held
+  // a click outside the panel lets go of what is held, or with nothing held,
+  // closes the satchel
   root.addEventListener('click', (e) => {
-    if (held && !panel.contains(e.target)) drop();
+    if (panel.contains(e.target)) return;
+    if (held) drop(); else setOpen(false);
   });
 
   function drop() {
